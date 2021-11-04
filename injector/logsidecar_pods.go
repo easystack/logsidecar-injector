@@ -18,9 +18,9 @@ import (
 const (
 	logsidecarAnnotationName              = "logging.es.io/logsidecar-config"
 	logsidecarFilebeatPatchAnnotationName = "logging.es.io/logsidecar-filebeat-config-jsonpatch"
-	logsidecarInitContainerName           = "logsidecar-init-container-logging-kubesphere-io"
-	logsidecarContainerName               = "logsidecar-container-logging-kubesphere-io"
-	logsidecarVolumeName                  = "logsidecar-config-volume-logging-kubesphere-io"
+	logsidecarInitContainerName           = "logsidecarinit"
+	logsidecarContainerName               = "logsidecar"
+	logsidecarVolumeName                  = "logsidecar-volume"
 )
 
 func MutateLogsidecarPods(ar v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
@@ -114,7 +114,7 @@ func removeLogsidecarPart(podSpec *corev1.PodSpec) {
 
 const (
 	logsidecarConfigDir    = "/etc/logsidecar"
-	filebeatConfigFileName = "filebeat.yaml"
+	filebeatConfigFileName = "fluent-bit.conf"
 )
 
 func addLogsidecarPart(podSpec *corev1.PodSpec, conf *LogsidecarConfig, filebeatJsonPatch string) error {
@@ -200,7 +200,7 @@ func addLogsidecarPart(podSpec *corev1.PodSpec, conf *LogsidecarConfig, filebeat
 		Image:           iconfig.SidecarConfig.Container.Image,
 		ImagePullPolicy: iconfig.SidecarConfig.Container.ImagePullPolicy,
 		Resources:       iconfig.SidecarConfig.Container.Resources,
-		Args:            []string{"-c", fmt.Sprintf("%s/%s", logsidecarConfigDir, filebeatConfigFileName)},
+		Command:         []string{"/fluent-bit/bin/fluent-bit", "-c", fmt.Sprintf("%s/%s", logsidecarConfigDir, filebeatConfigFileName)},
 		VolumeMounts:    append(volumeMounts, logsidecarVolumeMount),
 	})
 	return nil

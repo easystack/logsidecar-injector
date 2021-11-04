@@ -4,11 +4,12 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"gopkg.in/yaml.v2"
 	"io/ioutil"
-	"k8s.io/api/core/v1"
 	"sync"
 	"text/template"
+
+	"gopkg.in/yaml.v2"
+	v1 "k8s.io/api/core/v1"
 )
 
 const (
@@ -48,7 +49,7 @@ func (c *Config) AddFlags() {
 
 	flag.StringVar(&c.SidecarConfigFile, "sidecar-config-file", "/etc/logsidecar-injector/config/sidecar.yaml",
 		"File containing config of injected containers etc.")
-	flag.StringVar(&c.FilebeatConfigFile, "filebeat-config-file", "/etc/logsidecar-injector/config/filebeat.yaml",
+	flag.StringVar(&c.FilebeatConfigFile, "fluentbit-config-file", "/etc/logsidecar-injector/config/fluent-bit.conf",
 		"File containing filebeat config")
 }
 
