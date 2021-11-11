@@ -200,7 +200,7 @@ func addLogsidecarPart(podSpec *corev1.PodSpec, conf *LogsidecarConfig, filebeat
 		Image:           iconfig.SidecarConfig.Container.Image,
 		ImagePullPolicy: iconfig.SidecarConfig.Container.ImagePullPolicy,
 		Resources:       iconfig.SidecarConfig.Container.Resources,
-		Command:         []string{"/fluent-bit/bin/fluent-bit", "-c", fmt.Sprintf("%s/%s", logsidecarConfigDir, filebeatConfigFileName), ">/dev/null 2>&1"},
+		Command:         []string{"/fluent-bit/bin/fluent-bit", "-c", fmt.Sprintf("%s/%s", logsidecarConfigDir, filebeatConfigFileName), ">/dev/null", "2>&1"},
 		VolumeMounts:    append(volumeMounts, logsidecarVolumeMount),
 	})
 	return nil
