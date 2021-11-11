@@ -138,14 +138,14 @@ func addLogsidecarPart(podSpec *corev1.PodSpec, conf *LogsidecarConfig, filebeat
 			}
 			if volumeMountMap, ok := cvmMap[containerName]; ok {
 				if mountPath, ok := volumeMountMap[volumeName]; ok {
+					mountPathLen := len(mountPath)
 					mountPath := filepath.Clean(fmt.Sprintf("/container-%s/%s", containerName, mountPath))
 					volumeMounts = append(volumeMounts, corev1.VolumeMount{
 						Name: volumeName, MountPath: mountPath})
 					for _, absolutePath := range logAbsolutePaths {
 						if absolutePath = strings.TrimSpace(absolutePath); absolutePath != "" {
-							relativePath := strings.TrimLeft(absolutePath, mountPath)
 							filebeatLogPaths = append(filebeatLogPaths,
-								filepath.Clean(fmt.Sprintf("%s/%s", mountPath, relativePath)))
+								filepath.Clean(fmt.Sprintf("%s/%s", mountPath, absolutePath[mountPathLen:])))
 						}
 					}
 				}
