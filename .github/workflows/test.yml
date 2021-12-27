@@ -1,9 +1,5 @@
 name: Greeting from Mona
-on:
-  push:
-    branches: [ logsidecar ]
-  pull_request:
-    branches: [ logsidecar ]
+on: push
 
 env:
   GO111MODULE: on 
