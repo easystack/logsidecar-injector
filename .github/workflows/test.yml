@@ -1,5 +1,13 @@
 name: Greeting from Mona
-on: push
+# 触发 workflow 的事件
+on:
+  push:
+    # 分支随意
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
 
 env:
   GO111MODULE: on 
