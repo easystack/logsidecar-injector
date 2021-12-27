@@ -50,4 +50,4 @@ Add `logging.kubesphere.io/logsidecar-filebeat-config-jsonpatch` annotation to p
         annotations:
           logging.kubesphere.io/logsidecar-filebeat-config-jsonpatch: '[{"op":"replace","path":"/filebeat.inputs/0/tail_file","value":true}]'
   ```
-
+test1
