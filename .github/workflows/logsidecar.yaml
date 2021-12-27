@@ -1,9 +1,9 @@
 name: logsidecar
 on:
   push:
-    branches: [ logsidecar ]
+    branches: [ main ]
   pull_request:
-    branches: [ logsidecar ]
+    branches: [ main ]
 
 env:
   GO111MODULE: on 
