@@ -1,4 +1,6 @@
-FROM golang:1.13.5 as builder
+FROM golang:1.25 AS builder
+ARG GOPROXY=https://goproxy.cn,direct
+ENV GOPROXY=${GOPROXY}
 WORKDIR /workspace
 COPY . .
 RUN CGO_ENABLED=0 GO111MODULE=on go build -a -o ./bin/injector ./main.go

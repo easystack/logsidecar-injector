@@ -44,8 +44,9 @@ func MutateLogsidecarPods(ar v1beta1.AdmissionReview) *v1beta1.AdmissionResponse
 	podNN := pod.Namespace + ":" + pod.Name
 	podSpec := &pod.Spec
 
-	removeLogsidecarPart(podSpec)
+	removed := removeLogsidecarPart(podSpec)
 
+	injected := false
 	if confStr, exists := pod.Annotations[logsidecarAnnotationName]; exists {
 		if confStr = strings.TrimSpace(confStr); confStr != "" {
 			lscConfig, err := decodeLogsidecarConfig(confStr)
@@ -56,12 +57,26 @@ func MutateLogsidecarPods(ar v1beta1.AdmissionReview) *v1beta1.AdmissionResponse
 				return toAdmissionResponse(err)
 			}
 			filebeatJsonPatch := pod.Annotations[logsidecarFilebeatPatchAnnotationName]
-			if err = addLogsidecarPart(podSpec, lscConfig, filebeatJsonPatch); err != nil {
+			if injected, err = addLogsidecarPart(podSpec, lscConfig, filebeatJsonPatch); err != nil {
 				err = fmt.Errorf("faild to inject logsidecar into pod %s: %v", podNN, err)
 				klog.Error(err)
 				return toAdmissionResponse(err)
 			}
 		}
+	}
+
+	// Nothing to change: return without any patch.
+	//
+	// Creating a patch requires re-serializing the pod, which was decoded with
+	// the k8s.io/api version this binary is built against. Any field unknown to
+	// that version (e.g. volumes[].image, introduced in Kubernetes 1.31) is
+	// silently dropped while decoding, so it would disappear from the
+	// re-serialized object and end up as a "remove" operation in the patch.
+	// The API server then defaults such a source-less volume to an emptyDir.
+	// Only emit a patch when the logsidecar part really changed.
+	if !removed && !injected {
+		klog.V(2).Infof("no logsidecar change for pod %s, skip patching", podNN)
+		return &reviewResponse
 	}
 
 	patch, err := createLogsidecarPatch(raw, &pod)
@@ -94,22 +109,42 @@ func createLogsidecarPatch(raw []byte, mutated runtime.Object) ([]byte, error) {
 	return nil, nil
 }
 
-func removeLogsidecarPart(podSpec *corev1.PodSpec) {
-	for i, c := range podSpec.InitContainers {
+// removeLogsidecarPart drops the parts previously injected by this webhook and
+// reports whether anything has been removed.
+func removeLogsidecarPart(podSpec *corev1.PodSpec) bool {
+	changed := false
+
+	var initContainers []corev1.Container
+	for _, c := range podSpec.InitContainers {
 		if c.Name == logsidecarInitContainerName {
-			podSpec.InitContainers = append(podSpec.InitContainers[:i], podSpec.InitContainers[i+1:]...)
+			changed = true
+			continue
 		}
+		initContainers = append(initContainers, c)
 	}
-	for i, c := range podSpec.Containers {
+	podSpec.InitContainers = initContainers
+
+	var containers []corev1.Container
+	for _, c := range podSpec.Containers {
 		if c.Name == logsidecarContainerName {
-			podSpec.Containers = append(podSpec.Containers[:i], podSpec.Containers[i+1:]...)
+			changed = true
+			continue
 		}
+		containers = append(containers, c)
 	}
-	for i, v := range podSpec.Volumes {
+	podSpec.Containers = containers
+
+	var volumes []corev1.Volume
+	for _, v := range podSpec.Volumes {
 		if v.Name == logsidecarVolumeName {
-			podSpec.Volumes = append(podSpec.Volumes[:i], podSpec.Volumes[i+1:]...)
+			changed = true
+			continue
 		}
+		volumes = append(volumes, v)
 	}
+	podSpec.Volumes = volumes
+
+	return changed
 }
 
 const (
@@ -117,7 +152,9 @@ const (
 	filebeatConfigFileName = "fluent-bit.conf"
 )
 
-func addLogsidecarPart(podSpec *corev1.PodSpec, conf *LogsidecarConfig, filebeatJsonPatch string) error {
+// addLogsidecarPart injects the logsidecar containers and volume and reports
+// whether anything has been added.
+func addLogsidecarPart(podSpec *corev1.PodSpec, conf *LogsidecarConfig, filebeatJsonPatch string) (bool, error) {
 	cvmMap := make(map[string]map[string]string) // containerName: volumeName: mountPath
 	for _, c := range podSpec.Containers {
 		if len(c.VolumeMounts) == 0 {
@@ -138,14 +175,13 @@ func addLogsidecarPart(podSpec *corev1.PodSpec, conf *LogsidecarConfig, filebeat
 			}
 			if volumeMountMap, ok := cvmMap[containerName]; ok {
 				if mountPath, ok := volumeMountMap[volumeName]; ok {
-					mountPathLen := len(mountPath)
-					mountPath := filepath.Clean(fmt.Sprintf("/container-%s/%s", containerName, mountPath))
+					mountPath = filepath.Clean(fmt.Sprintf("/container-%s/%s", containerName, mountPath))
 					volumeMounts = append(volumeMounts, corev1.VolumeMount{
 						Name: volumeName, MountPath: mountPath})
-					for _, absolutePath := range logAbsolutePaths {
-						if absolutePath = strings.TrimSpace(absolutePath); absolutePath != "" {
+					for _, logPath := range logAbsolutePaths {
+						if logPath = strings.TrimSpace(logPath); logPath != "" {
 							filebeatLogPaths = append(filebeatLogPaths,
-								filepath.Clean(fmt.Sprintf("%s/%s", mountPath, absolutePath[mountPathLen:])))
+								filepath.Join(mountPath, strings.TrimLeft(logPath, "/")))
 						}
 					}
 				}
@@ -154,7 +190,7 @@ func addLogsidecarPart(podSpec *corev1.PodSpec, conf *LogsidecarConfig, filebeat
 	}
 
 	if len(filebeatLogPaths) == 0 {
-		return nil
+		return false, nil
 	}
 
 	iconfig := GetInjectorConfig()
@@ -164,13 +200,13 @@ func addLogsidecarPart(podSpec *corev1.PodSpec, conf *LogsidecarConfig, filebeat
 	if err := iconfig.FilebeatConfigTemplate.Execute(&buffer, struct {
 		Paths []string
 	}{filebeatLogPaths}); err != nil {
-		return err
+		return false, err
 	}
 	fbConfigYaml := buffer.String()
 	if filebeatJsonPatch = strings.TrimSpace(filebeatJsonPatch); filebeatJsonPatch != "" {
 		newYaml, err := PatchYaml(fbConfigYaml, filebeatJsonPatch)
 		if err != nil {
-			return err
+			return false, err
 		}
 		fbConfigYaml = newYaml
 	}
@@ -203,5 +239,5 @@ func addLogsidecarPart(podSpec *corev1.PodSpec, conf *LogsidecarConfig, filebeat
 		Command:         []string{"/fluent-bit/bin/fluent-bit", "-c", fmt.Sprintf("%s/%s", logsidecarConfigDir, filebeatConfigFileName), "-q"},
 		VolumeMounts:    append(volumeMounts, logsidecarVolumeMount),
 	})
-	return nil
+	return true, nil
 }
